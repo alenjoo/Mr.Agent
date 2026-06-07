@@ -6,79 +6,56 @@ The system tightly integrates with [ThinkingRoot DB](https://github.com/DevbyNav
 
 ## Architecture overview
 
-OwnPager employs a highly decoupled, state-of-the-art architecture split across a Rust backend daemon, a TypeScript frontend, and a cloud-based state management layer. This robust design guarantees that the agent can execute complex, multi-step, long-running workflows securely without blocking the user interface or losing execution state during system restarts.
+OwnPager employs a decoupled, high-performance architecture split across a Rust backend daemon, a TypeScript frontend, and a cloud-based state management layer. Conceptually, the architecture functions as a stateful, agentic query-processing pipeline that isolates reasoning paths and synchronizes knowledge.
 
-### 1. High-Level Component Interactions
+### 1. Ingestion & Intake Layer
+OwnPager acts as a multi-channel intake gateway. Requests are ingested from three distinct entry points:
+* **CLI Console**: Running individual task runs via terminal commands.
+* **Web Server API**: An Axum-based REST server that exposes endpoints (like `/api/turn`) to interact with browser-based tools.
+* **Telegram Wrapper**: An asynchronous polling service that routes messaging channel updates to the agent.
 
-The architecture follows an event-driven and RESTful hybrid model:
-1. **User Input Phase**: The user submits a requirement via the TypeScript frontend.
-2. **Intake & Routing**: The Rust backend receives the requirement via an Axum-based API endpoint and creates an initial execution state in ThinkingRoot DB.
-3. **Reasoning Loop**: The backend enters a continuous reasoning loop, querying the OpenAI API for the next optimal action.
-4. **Tool Execution**: If a tool is selected by the LLM (e.g., executing a bash command or writing a file), the backend validates the action against security policies and executes it locally.
-5. **State Synchronization**: Throughout the process, the agent's memory, context window, and tool outputs are continuously synced with ThinkingRoot DB.
-6. **Live Telemetry**: The frontend receives real-time streams of the agent's thought process and task status.
+Each query is processed to resolve session keys, user profiles, and active workspace paths before execution begins.
 
-### 2. Backend Daemon (Rust / Axum)
+### 2. Context Retrieval & Branch Isolation
+When a turn starts, the system isolates the execution workspace:
+* **ThinkingRoot Branching**: To prevent context pollution and enable rollbacks, the agent forks a temporary, request-scoped branch in [ThinkingRoot DB](https://github.com/DevbyNaveen/ThinkingRoot).
+* **Capsule Compilation**: The backend retrieves a compiled *Capsule* from ThinkingRoot. This capsule consolidates the dynamic system prompt, relevant grounded context claims (facts), and permitted tools.
 
-The backend is engineered for maximum performance, memory safety, and concurrency. It acts as the core execution engine of the agent ecosystem.
+### 3. Reasoning & Execution Loop
+With the context compiled, the core execution engine runs the reasoning loop:
+* **ThinkingRoot Flow Dispatch**: For complex, multi-step tasks, the agent dispatches execution to a ThinkingRoot Flow and polls for output completion.
+* **Local Tool Execution**: For reasoning turns, the engine queries the LLM. If the LLM requests tool use (like a terminal command), the engine executes the shell command in a secured execution environment restricting timeouts, output sizes, and directories.
+* **Iteration Resilience**: If the agent reaches its maximum tool iteration threshold, it halts gracefully and returns a partial answer based on gathered evidence rather than failing.
 
-#### 2.1 API & Routing Layer
-- **High-Concurrency API Routing**: Built on `axum` and the `tokio` asynchronous runtime. This allows the backend to efficiently handle hundreds of simultaneous request streams, status update websockets, and background agent executions with minimal overhead.
-- **Middleware & Tracing**: Implements comprehensive middleware for request logging, CORS handling, and authentication validation. It uses `tracing` for structured logging, allowing developers to monitor internal agent state transitions deeply.
+### 4. Knowledge Capture & Synchronization
+Once a turn concludes, the agent commits the outcome:
+* **Memory Capture**: Key facts and decisions from the turn are summarized.
+* **Store & Merge**: The summarized knowledge is pushed back to the user scope in ThinkingRoot DB, and the temporary branch is merged back into the parent branch.
+* **Stateless Backend**: Because the state is synchronized externally, the Rust daemon remains resilient to crashes and restarts without losing task progress.
 
-#### 2.2 LLM Orchestration & Prompting
-- **Inference Engine**: Tightly integrates with the OpenAI API for sophisticated reasoning, multi-step task decomposition, and JSON-based tool-use generation.
-- **Context Management**: Implements dynamic context window management. As the agent accumulates data, the backend summarizes older context or prunes irrelevant information to ensure the LLM stays within token limits while retaining crucial task knowledge.
-- **Fallback Strategies**: Includes exponential backoff and retry mechanisms for API rate limits or transient network failures during LLM inference.
+## SDK Bridge Subsystem
 
-#### 2.3 Local Tool Execution Engine
-- **Sandboxed Execution Environment**: A secured, isolated execution environment that runs local terminal actions, shell scripts, and file manipulations.
-- **Safety Configurations**: Tool execution is strictly governed by local safety configurations. Commands can be whitelisted, blacklisted, or flagged to require explicit human approval via the frontend before execution.
-- **Asynchronous Output Streaming**: Long-running tool commands (like compiling a large project) have their `stdout` and `stderr` captured asynchronously and streamed back to the frontend in real-time.
+To minimize duplication of the ThinkingRoot core API, the backend employs a hybrid Rust-to-Node subprocess bridge.
+* **Bridge Execution**: The Rust daemon launches a Node.js process executing `scripts/thinkingroot_sdk_bridge.mjs`.
+* **IPC Transport**: Structured requests are serialized into JSON envelopes and transmitted via stdin, with replies returned on stdout.
+* **Bridge Actions**: Supported actions include branch creation, checkout, merge, capsule compilation, routing, and memory storage.
 
-#### 2.4 State & Memory Management
-- **ThinkingRoot DB Interface**: Interacts continuously with the cloud-based ThinkingRoot DB to persist the agent's short-term memory, manage tool execution limits, and handle complex state transitions.
-- **Resilience**: Because state is managed externally, the local Rust daemon can be safely restarted without losing the context of an ongoing agent task. Upon restart, the daemon pulls the active state from ThinkingRoot and resumes execution seamlessly.
+## CLI Subcommands Reference
 
-### 3. Frontend Interface (TypeScript)
-
-The user-facing component of OwnPager is designed for maximum clarity, utility, and speed. It avoids the heavy bundles of traditional web apps in favor of a lean, focused interface.
-
-#### 3.1 Design Philosophy
-- **High-Contrast, Minimalist UI**: Utilizes a clean, stark design language tailored specifically for text legibility and rapid requirement intake. The interface is deliberately free of unnecessary UI bloat, animations, or heavy graphical assets.
-- **Terminal-Inspired Aesthetics**: The visual language draws inspiration from terminal environments, reinforcing its nature as a developer and power-user tool.
-
-#### 3.2 Real-time Communication
-- **Live Status Reporting**: Communicates with the Rust backend (via Server-Sent Events or WebSockets) to stream real-time logs, intermediate agent thoughts, and task progression. This gives the user deep visibility into "what the agent is doing right now."
-- **Interactive Prompts**: When the backend encounters a blocked action requiring human approval, the frontend dynamically renders an interactive prompt for the user to approve, deny, or modify the action.
-
-#### 3.3 Deployment Versatility
-- **Embedded Context Ready**: Engineered to operate seamlessly within a standard web browser, or to be embedded within other environments (such as an Electron app, a VSCode extension, or an iframe within another dashboard).
-
-### 4. State Management (ThinkingRoot DB)
-
-[ThinkingRoot DB](https://github.com/DevbyNaveen/ThinkingRoot) serves as the central nervous system that coordinates and tracks the multi-agent workflows. It elevates the application from a simple script to a robust, distributed agent architecture.
-
-#### 4.1 Flow Control & Execution Modes
-- **Autonomous vs. Supervised Execution**: Manages the overarching sequence of tasks. By configuring `OWNPAGER_FLOW_MODE`, users can dictate whether the agent acts fully autonomously or requires user approval at critical junctures.
-- **Conversational State**: Maintains the history of user-agent interactions, ensuring the agent remembers prior constraints and user preferences across different sessions.
-
-#### 4.2 Branch Orchestration
-- **Parallel Reasoning**: Enables the agent to fork its execution paths. If a task can be parallelized (e.g., researching three different APIs simultaneously), ThinkingRoot orchestrates the branches and aggregates the results back into the main execution thread.
-- **State Rollbacks**: Provides the ability to snapshot state. If an agent goes down a "hallucination rabbit hole," the execution can be rolled back to a known good state in the ThinkingRoot tree.
-
-### 5. Security & Isolation
-
-Security is a primary concern given the agent's ability to execute local commands and read files.
-- **Workspace Confinement**: The agent's file system access is strictly jailed to the designated `THINKINGROOT_WORKSPACE` directory. It cannot traverse up the directory tree to access sensitive OS files.
-- **Environment Variable Masking**: The execution engine actively scrubs sensitive environment variables from logs and agent context to prevent accidental leakage to the LLM provider.
+The compiled Rust binary (`target/debug/ownpager`) provides direct commands for pipeline administration:
+* `cli --message "<query>"`: Simulates turn ingestion and logs a JSON preview of the prepared turn and boundary variables.
+* `run-cli --message "<query>"`: Spawns the agent runner loop to run the query, execute local terminal tasks, and sync state.
+* `serve-web`: Launches the Axum web daemon to interface with local ports (such as `8080`, `8081`, `8082`) for frontend routing.
+* `serve-telegram`: Runs a long-polling Telegram update receiver thread to pipe direct messages to the worker.
+* `serve-telegram-run`: Starts the Telegram client and executes complete agent turns for every received update.
+* `terminal --command "<cmd>"`: Invokes a sandboxed command runner with configured timeout, directory, and output restrictions.
 
 ## Dependencies
 
-- **ThinkingRoot DB**: The central nervous system for managing conversational state, flow structures, and agent configurations. Ensure you have your project key generated from the console.
-- **OpenAI API**: Provides the core language model inference capabilities.
-- **Rust Toolchain**: Required to compile the `ownpager` backend daemon.
-- **Node.js**: Required to serve the static frontend assets.
+- **ThinkingRoot DB**: Central database for managing conversational states, workflow configurations, and memory capsules.
+- **OpenAI API**: The core Large Language Model (LLM) engine for reasoning, task parsing, and tool-use generation.
+- **Rust Toolchain**: Cargo compile runtime required to build the backend daemon and run check validations.
+- **Node.js**: The Javascript execution engine required to spin up the ThinkingRoot SDK subprocess bridge.
 
 ## Configuration
 
@@ -122,3 +99,51 @@ Key variables include:
 ## Development
 
 During active development, it is recommended to run the frontend via the development server while running the Rust backend via `cargo run`.
+
+## Troubleshooting
+
+* **Refusing to Merge Unrelated Histories**: Resolved by pulling with `git pull origin main --allow-unrelated-histories`.
+* **Leaked Credentials**: Run `git filter-branch --force --index-filter "git rm --cached --ignore-unmatch .env" --prune-empty --tag-name-filter cat -- --all` and force-push.
+* **Bridge Script Not Found**: Double check that the path to `scripts/thinkingroot_sdk_bridge.mjs` is configured correctly in `.env`.
+
+## API Specification
+
+OwnPager exposes a REST endpoint for external client integrations:
+
+### POST `/api/turn`
+
+Exposes the agent runner to web intakes.
+* **Request Body**:
+  ```json
+  {
+    "message": "User query requirement string",
+    "profile": "Session identifier profile name",
+    "client_session_id": "Unique client UUID"
+  }
+  ```
+* **Response Body**:
+  ```json
+  {
+    "request_id": "Session request UUID",
+    "final_answer": "Aggregated markdown answer string",
+    "usage_estimate": {
+      "total_tokens": 1250,
+      "api_call_count": 3
+    }
+  }
+  ```
+
+## Integration & Flow Control
+
+* **Pre-Turn Analysis**: The query text is matched against rules to identify complex workflows. If complex, the task is delegated to a ThinkingRoot Flow run.
+* **Autonomous Autonomy**: `OWNPAGER_FLOW_MODE=auto` runs simple queries locally via the LLM tool loop, while complex plans run on the server.
+* **Evidence Aggregation**: If the tool loop reaches its iteration limit, the system summarizes terminal stdout logs into a coherent final answer.
+* **State Isolation**: Subprocesses running under target configurations run isolated from main processes to protect the host machine from leakage.
+
+## License
+
+OwnPager is released under the MIT License. Details can be found in the accompanying LICENSE file.
+
+For inquiries or support, please check the [ThinkingRoot GitHub Repository](https://github.com/DevbyNaveen/ThinkingRoot).
+
+---

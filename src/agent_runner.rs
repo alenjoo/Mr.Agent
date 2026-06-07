@@ -227,11 +227,7 @@ pub async fn run_agent_turn(
         registry.build_execution_plan(&allowed_tool_names, used_local_fallback, agent_config);
     warnings.extend(execution_plan.warnings.clone());
 
-<<<<<<< HEAD
     let instructions = build_instructions(&capsule, !execution_plan.tool_definitions.is_empty());
-=======
-    let instructions = build_instructions(&capsule);
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
     let mut input = vec![user_message(&prepared.query_text)];
     let mut tool_calls = Vec::new();
 
@@ -304,7 +300,6 @@ pub async fn run_agent_turn(
         }
 
         if step == agent_config.max_tool_iterations {
-<<<<<<< HEAD
             warnings.push(format!(
                 "Agent stopped after reaching the max tool iteration limit ({}).",
                 agent_config.max_tool_iterations
@@ -357,12 +352,6 @@ pub async fn run_agent_turn(
                 usage_estimate,
                 warnings,
             });
-=======
-            return Err(format!(
-                "agent exceeded max tool iterations ({})",
-                agent_config.max_tool_iterations
-            ));
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
         }
 
         for function_call in response.function_calls {
@@ -403,7 +392,6 @@ fn merge_openai_usage(target: &mut AgentTurnUsageEstimate, usage: Option<&OpenAi
     }
 }
 
-<<<<<<< HEAD
 fn build_instructions(capsule: &ThinkingRootCapsule, has_tools: bool) -> String {
     let mut instructions = capsule.system_prompt.trim().to_string();
     if has_tools {
@@ -414,10 +402,6 @@ fn build_instructions(capsule: &ThinkingRootCapsule, has_tools: bool) -> String 
         );
     }
     instructions
-=======
-fn build_instructions(capsule: &ThinkingRootCapsule) -> String {
-    capsule.system_prompt.trim().to_string()
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
 }
 
 fn select_flow_id<'a>(agent_config: &'a AgentRuntimeConfig, query_text: &str) -> Option<&'a str> {
@@ -595,7 +579,6 @@ fn flow_final_answer(flow_run: &ThinkingRootFlowRun) -> String {
     )
 }
 
-<<<<<<< HEAD
 fn build_tool_iteration_limit_answer(
     max_tool_iterations: usize,
     tool_calls: &[AgentToolExecutionRecord],
@@ -650,9 +633,6 @@ fn truncate_for_answer(value: &str, max_chars: usize) -> String {
     }
     truncated
 }
-
-=======
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
 fn build_terminal_request(
     arguments: &Value,
     prepared: &PreparedTurnRequest,
@@ -1439,7 +1419,6 @@ mod tests {
     }
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn returns_partial_answer_when_tool_iteration_limit_is_reached() {
         let stored = Arc::new(Mutex::new(Vec::new()));
         let thinkingroot = StubThinkingRootClient {
@@ -1515,8 +1494,6 @@ mod tests {
     }
 
     #[tokio::test]
-=======
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
     async fn cold_start_falls_back_to_local_bootstrap_tool() {
         let stored = Arc::new(Mutex::new(Vec::new()));
         let thinkingroot = StubThinkingRootClient {
