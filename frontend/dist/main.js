@@ -387,15 +387,9 @@ function apiCandidates() {
         ["8080", "8081", "8082"].includes(window.location.port)
             ? window.location.origin
             : "",
-<<<<<<< HEAD
-        `${protocol}//${host}:8082`,
-        `${protocol}//${host}:8081`,
-        `${protocol}//${host}:8080`,
-=======
         `${protocol}//${host}:8080`,
         `${protocol}//${host}:8081`,
         `${protocol}//${host}:8082`,
->>>>>>> a4431edb3da484ff49672ad59b00295a092f0813
     ].filter(Boolean);
     return Array.from(new Set(candidates));
 }
