@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+build/
+.env
+frontend/node_modules/
+# Rust
+/target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log

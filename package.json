@@ -1,0 +1,8 @@
+{
+  "name": "ownpager",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@thinkingroot/sdk": "^0.1.0"
+  }
+}
